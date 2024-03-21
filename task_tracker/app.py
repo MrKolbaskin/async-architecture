@@ -1,18 +1,33 @@
+import json
+from enum import StrEnum
 from threading import Thread
 from typing import Any, Dict
 
 import requests
 from fastapi import Depends, FastAPI, HTTPException, Request
+from kafka import KafkaProducer
 from pydantic import BaseModel
 
 import repositories.task as task_repo
 import repositories.user as user_repo
+from domain.task import Task
 from jobs import sync_users
 
 sync_users_job = Thread(target=sync_users, name="sync_users_job")
 sync_users_job.start()
 
 app = FastAPI()
+
+TASKS_TOPIC = "tasks"
+producer = KafkaProducer(
+    bootstrap_servers="localhost:9092",
+    value_serializer=lambda m: json.dumps(m).encode("ascii"),
+)
+
+
+class TasksEventType(StrEnum):
+    ASSIGNEE = "assigneeTaskEvent"
+    COMPLETE = "completeTaskEvent"
 
 
 def verify_token(req: Request) -> Dict[str, Any]:
@@ -43,7 +58,14 @@ class CreateTaskBody(BaseModel):
 async def create_task(body: CreateTaskBody, token_payload: Dict[str, Any] = Depends(verify_token)):
     user = user_repo.get_user_by_username(token_payload["clientId"])
 
-    task_repo.create_task(body.description, user)
+    task = Task.create_new(assignee=user, description=body.description)
+    task_repo.create_task(task)
+
+    producer.send(
+        TASKS_TOPIC,
+        value={"username": user.username, "cost": task.assignee_cost},
+        headers=("event_type", TasksEventType.ASSIGNEE),
+    )
     return {}
 
 
@@ -54,6 +76,12 @@ async def complete_task(task_id: int, token_payload: Dict[str, Any] = Depends(ve
 
     task.complete(user)
     task_repo.save(task)
+
+    producer.send(
+        TASKS_TOPIC,
+        value={"username": user.username, "cost": task.complete_cost},
+        headers=("event_type", TasksEventType.COMPLETE),
+    )
 
     return {}
 
@@ -69,5 +97,10 @@ async def assignee_tasks(token_payload: Dict[str, Any] = Depends(verify_token)):
     for task in tasks:
         task.reassignee(users)
         task_repo.save(task)
+        producer.send(
+            TASKS_TOPIC,
+            value={"username": task.assignee.username, "cost": task.assignee_cost},
+            headers=("event_type", TasksEventType.ASSIGNEE),
+        )
 
     return {}

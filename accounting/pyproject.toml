@@ -1,0 +1,25 @@
+[tool.poetry]
+name = "accounting"
+version = "0.1.0"
+description = ""
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.110.0"
+psycopg2 = "^2.9.9"
+kafka-python = "^2.0.2"
+fastapi-utilities = "^0.2.0"
+
+[tool.poetry.group.dev.dependencies]
+black = "^24.2.0"
+flake8 = "^7.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 120 
+target-version = ['py312']
